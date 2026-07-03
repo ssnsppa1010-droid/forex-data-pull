@@ -249,13 +249,8 @@ if run:
         st.error("No data returned."); st.stop()
 
     st.success(f"{len(results)} file(s) ready!")
-    for name, df in results.items():
-        with st.expander(f"{name}_{timeframe}.csv -- {len(df)} rows"):
-            st.dataframe(df.head(10), use_container_width=True)
-            st.download_button(f"Download {name}_{timeframe}.csv",
-                               df.to_csv().encode("utf-8"),
-                               file_name=f"{name}_{timeframe}.csv",
-                               mime="text/csv", key=f"dl_{name}")
+
+    # ZIP for everything (visible at top when there are multiple files)
     if len(results) > 1:
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -265,3 +260,14 @@ if run:
                            file_name=f"{source.replace(' ','_')}_{timeframe}.zip",
                            mime="application/zip", type="primary",
                            use_container_width=True)
+        st.divider()
+
+    # Each file: download button always visible; preview inside an expander
+    for name, df in results.items():
+        st.download_button(f"Download  {name}_{timeframe}.csv  ({len(df)} rows)",
+                           df.to_csv().encode("utf-8"),
+                           file_name=f"{name}_{timeframe}.csv",
+                           mime="text/csv", key=f"dl_{name}",
+                           use_container_width=True)
+        with st.expander(f"Preview {name}"):
+            st.dataframe(df.head(10), use_container_width=True)
