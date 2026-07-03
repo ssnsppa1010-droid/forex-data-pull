@@ -103,11 +103,55 @@ def duka_fetch(ticker, market, timeframe, from_date, to_date):
     df.index.name = 'Date'
     return df
 
-# ============================================================
-#  UI
-# ============================================================
+# ---- Foreign INDEX (friendly name -> Dukascopy instrument attribute) ----
+DUKA_INDEX_MAP = {
+    'SP500':'INSTRUMENT_IDX_AMERICA_E_SANDP_500',
+    'NAS100':'INSTRUMENT_IDX_AMERICA_E_NQ_100',
+    'DOW':'INSTRUMENT_IDX_AMERICA_E_D_J_IND',
+    'RUSSELL2000':'INSTRUMENT_IDX_AMERICA_USSC2000_IDX_USD',
+    'RUSSELL':'INSTRUMENT_IDX_AMERICA_RUSSELL_IDX_USD',
+    'VIX':'INSTRUMENT_IDX_AMERICA_VOL_IDX_USD',
+    'DOLLARIDX':'INSTRUMENT_IDX_AMERICA_DOLLAR_IDX_USD',
+    'DAX':'INSTRUMENT_IDX_EUROPE_E_DAAX',
+    'FTSE':'INSTRUMENT_IDX_EUROPE_E_FUTSEE_100',
+    'CAC':'INSTRUMENT_IDX_EUROPE_E_CAAC_40',
+    'EUSTOXX':'INSTRUMENT_IDX_EUROPE_E_DJE50XX',
+    'SWISS':'INSTRUMENT_IDX_EUROPE_E_SWMI',
+    'IBEX':'INSTRUMENT_IDX_EUROPE_E_IBC_MAC',
+    'ITALY':'INSTRUMENT_IDX_EUROPE_ITA_IDX_EUR',
+    'NETHERLANDS':'INSTRUMENT_IDX_EUROPE_NLD_IDX_EUR',
+    'POLAND':'INSTRUMENT_IDX_EUROPE_PLN_IDX_PLN',
+    'PORTUGAL':'INSTRUMENT_IDX_PRT_IDX_EUR',
+    'NIKKEI':'INSTRUMENT_IDX_ASIA_E_N225JAP',
+    'HANGSENG':'INSTRUMENT_IDX_ASIA_E_H_KONG',
+    'ASX':'INSTRUMENT_IDX_ASIA_E_XJO_ASX',
+    'CHINA':'INSTRUMENT_IDX_ASIA_CHI_IDX_USD',
+    'INDIA':'INSTRUMENT_IDX_ASIA_IND_IDX_USD',
+    'SINGAPORE':'INSTRUMENT_IDX_ASIA_SGD_IDX_SGD',
+    'SOUTHAFRICA':'INSTRUMENT_IDX_AFRICA_SOA_IDX_ZAR',
+}
+
+def duka_index_fetch(name, timeframe, from_date, to_date):
+    """Returns a cleaned df, None (no data), or 'NOSYM' (name not in the list)."""
+    import dukascopy_python
+    from dukascopy_python import instruments as I
+    attr = DUKA_INDEX_MAP.get(name.strip().upper())
+    inst = getattr(I, attr, None) if attr else None
+    if inst is None:
+        return "NOSYM"
+    interval = getattr(dukascopy_python, DUKA_TF_NAMES[timeframe])
+    df = dukascopy_python.fetch(inst, interval, dukascopy_python.OFFER_SIDE_BID,
+                                from_date, to_date)
+    if df is None or df.empty:
+        return None
+    df = df.rename(columns={'open':'Open', 'high':'High', 'low':'Low',
+                            'close':'Close', 'volume':'Volume'})
+    keep = [c for c in ['Open', 'High', 'Low', 'Close', 'Volume'] if c in df.columns]
+    df = df[keep]
+    df.index.name = 'Date'
+    return df
 st.subheader("1. Choose data source")
-source = st.radio("Source", ["Crypto", "Foreign Stocks"], horizontal=True)
+source = st.radio("Source", ["Crypto", "Foreign Stocks", "Foreign Index"], horizontal=True)
 
 if source == "Crypto":
     st.subheader("2. Which coins?")
@@ -116,7 +160,7 @@ if source == "Crypto":
     quote = c1.selectbox("Quote currency", ["USDT", "FDUSD", "USDC", "BTC", "ETH"])
     timeframe = c2.selectbox("Timeframe", list(BINANCE_TF),
                              index=list(BINANCE_TF).index('1day'))
-else:
+elif source == "Foreign Stocks":
     st.subheader("2. Which stocks?")
     st.caption("Global major stocks only (US ~630, UK, Japan, Germany...). "
                "Indian NSE stocks are not available here.")
@@ -124,6 +168,13 @@ else:
     c1, c2 = st.columns(2)
     market = c1.selectbox("Market", DUKA_MARKETS)
     timeframe = c2.selectbox("Timeframe", list(DUKA_TF_NAMES),
+                             index=list(DUKA_TF_NAMES).index('1day'))
+else:  # Foreign Index
+    st.subheader("2. Which indices?")
+    names_raw = st.text_area("Index names (separate with commas)", placeholder="SP500, NAS100, DAX")
+    with st.expander("Available index names"):
+        st.write(", ".join(DUKA_INDEX_MAP.keys()))
+    timeframe = st.selectbox("Timeframe", list(DUKA_TF_NAMES),
                              index=list(DUKA_TF_NAMES).index('1day'))
 
 d1, d2 = st.columns(2)
@@ -160,7 +211,7 @@ if run:
                 no_data.append(label)
             else:
                 results[label] = df
-        else:
+        elif source == "Foreign Stocks":
             label = f"{nm.upper()}_{market}"
             prog.progress((i - 1) / len(names), text=f"{label} ...")
             try:
@@ -173,12 +224,25 @@ if run:
                 no_data.append(label)
             else:
                 results[label] = out
+        else:  # Foreign Index
+            label = nm.upper()
+            prog.progress((i - 1) / len(names), text=f"{label} ...")
+            try:
+                out = duka_index_fetch(nm, timeframe, f_date, t_date)
+            except Exception as e:
+                no_data.append(f"{label} ({e})"); continue
+            if isinstance(out, str) and out == "NOSYM":
+                not_found.append(f"{label} (not in list)")
+            elif out is None or out.empty:
+                no_data.append(label)
+            else:
+                results[label] = out
 
     prog.progress(1.0, text="Done!")
     status.empty()
 
     if not_found:
-        st.warning("Ticker not on Dukascopy (check ticker / market): " + ", ".join(not_found))
+        st.warning("Not found on Dukascopy (check name / market): " + ", ".join(not_found))
     if no_data:
         st.warning("No data (check name / date range): " + ", ".join(no_data))
     if not results:
