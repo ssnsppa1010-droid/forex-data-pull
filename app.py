@@ -167,9 +167,9 @@ if run:
                 out = duka_fetch(nm, market, timeframe, f_date, t_date)
             except Exception as e:
                 no_data.append(f"{label} ({e})"); continue
-            if out == "NOSYM":
+            if isinstance(out, str) and out == "NOSYM":
                 not_found.append(f"{nm.upper()} ({market})")
-            elif out is None or (hasattr(out, 'empty') and out.empty):
+            elif out is None or out.empty:
                 no_data.append(label)
             else:
                 results[label] = out
